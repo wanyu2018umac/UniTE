@@ -7,6 +7,7 @@ This is the repository of UniTE: Unified Translation Evaluation.
 
 Please cite our paper if you find useful:
 
+```
 @inproceedings{wan2021robleurt,
     title = "{{RoBLEURT Submission for WMT2021 Metrics Task}}",
     author = "Wan, Yu  and
@@ -34,3 +35,4 @@ Please cite our paper if you find useful:
     booktitle = "Annual Meeting of the Association for Computational Linguistics (ACL)",
     year = "2022",
 }
+```
