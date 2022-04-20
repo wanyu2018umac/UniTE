@@ -95,7 +95,7 @@ def main() -> None:
         )
         for i, (mean, std, sample) in enumerate(zip(mean_scores, std_scores, data)):
             print("Segment {}\tscore: {:.4f}\tvariance: {:.4f}".format(i, mean, std))
-            sample["COMET"] = mean
+            sample["UniTE"] = mean
             sample["variance"] = std
 
         print("System score: {:.4f}".format(sys_score))
@@ -108,7 +108,7 @@ def main() -> None:
         predictions, sys_score = model.predict(data, cfg.batch_size, cfg.gpus)
         for i, (score, sample) in enumerate(zip(predictions, data)):
             print("Segment {}\tscore: {:.4f}".format(i, score))
-            sample["COMET"] = score
+            sample["UniTE"] = score
 
         print("System score: {:.4f}".format(sys_score))
         if isinstance(cfg.to_json, str):
