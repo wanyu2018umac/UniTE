@@ -6,7 +6,7 @@ Datasets can be found at COMET repository.
 # Usage
 
 1. Download this repository via git;
-2. Download the checkpoints from google drive: https://drive.google.com/file/d/1feqRHHRxcnw_CgLe6cofbe1qu_cBYLI_;
+2. Download the checkpoints from [google drive](https://drive.google.com/file/d/1feqRHHRxcnw_CgLe6cofbe1qu_cBYLI_);
 3. Extract the zip file, and you can get checkpoints ('ckpt' as suffix) and corresponding setting files ('yaml' files, totally three);
 4. Run score.py to score the files you want:
 ```
