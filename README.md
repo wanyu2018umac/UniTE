@@ -21,12 +21,12 @@ python score.py -s src.txt -r ref.txt -t trans.txt --model model.ckpt --to_json 
 ```
 
 where:
-`src.txt` stores the source inputs
-`ref.txt` stores the target reference
-`trans.txt` stores the translation outputs (can also be named as candidates or hypotheses)
-`model.ckpt` is the path of model checkpoint
-`results.***.json` is the output path of json-formatted scores
-`hparams.***.yaml` is the path of setting file
+- `src.txt` stores the source inputs
+- `ref.txt` stores the target reference
+- `trans.txt` stores the translation outputs (can also be named as candidates or hypotheses)
+- `model.ckpt` is the path of model checkpoint
+- `results.***.json` is the output path of json-formatted scores
+- `hparams.***.yaml` is the path of setting file
 
 # Citation
 
