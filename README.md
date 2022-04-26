@@ -30,7 +30,29 @@ where:
 
 # In Progress
 
-Right now we are working on the huggingface version of UniTE. See you soon!
+Right now we are working on the huggingface version of UniTE. Locally this toolkit can be used as:
+
+```
+# import models (take UniTE-MUP as an example)
+>>> from transformers import UniTEForSequenceClassification, UniTETokenizerFast
+>>> tokenizer = UniTETokenizerFast.from_pretrained('ywan/unite-mup')
+>>> model = UniTEForSequenceClassification.from_pretrained('ywan/unite-mup')
+
+# construct sources (src), references (ref) and hypotheses (hyp)
+>>> src = tokenizer(['你好！', '很高兴认识你！'], return_tensors='pt', padding=True)
+>>> ref = tokenizer(['Hello!', 'Nice to meet you!'], return_tensors='pt', padding=True)
+>>> hyp = tokenizer(['Hi!', 'Nice to see you!'], return_tensors='pt', padding=True)
+
+# evaluating with different input formats
+>>> model(hyp=hyp, src=src).cpu().tolist()
+[0.714469850063324, 0.6583192944526672]
+>>> model(hyp=hyp, ref=ref).cpu().tolist()
+[0.746547281742096, 0.7588061094284058]
+>>> model(hyp=hyp, src=src, ref=ref).cpu().tolist()
+[0.6857070326805115, 0.7172597050666809]
+```
+
+Wish to see you soon!
 
 # Citation
 
