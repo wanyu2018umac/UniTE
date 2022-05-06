@@ -86,6 +86,7 @@ class RegressionMetric(CometModel):
         combine_inputs: bool = False,
         multiple_segment_embedding: bool = False,
         attention_excluded_regions: List[str] = [],
+        attention_excluded_regions_dict: Dict[str, str] = {},
         attention_excluded_regions_sampling: Dict[str, float] = {},
         cls_from_all_to_cls: bool = False,
         cls_from_cls_to_all: bool = False,
@@ -169,20 +170,8 @@ class RegressionMetric(CometModel):
                 raise ValueError('Segment embeddings loaded from checkpoint can\'t convert to acquired embeddings.')
             print('Segment embeddings size:', self.encoder.model.embeddings.token_type_embeddings.weight.size())
 
-        if len(attention_excluded_regions_sampling) == 0:
-            self.attention_excluded_regions_sampling = attention_excluded_regions_sampling
-            if len(attention_excluded_regions) != 0:
-                if any(x not in ['src-src', 'src-hyp', 'src-ref', 'hyp-src', 'hyp-hyp', 'hyp-ref', 'ref-src', 'ref-hyp', 'ref-ref'] for x in attention_excluded_regions):
-                    raise ValueError('Attention excluded regions must be choices from \'src-src, src-hyp, src-ref, hyp-src, hyp-hyp, hyp-ref, ref-src, ref-hyp, ref-ref\'.')
-                print('Following attention among input segments will be banned: [%s]' % ', '.join(attention_excluded_regions))
-                segment_input_index = {v: str(k) for k, v in enumerate(self.input_segments)}
-                for segment in self.input_segments:
-                    attention_excluded_regions = list(x.replace(segment, segment_input_index[segment]) for x in attention_excluded_regions)
-                self.attention_excluded_regions = list((int(x[0]), int(x[-1])) for x in attention_excluded_regions)
-                print('Converting attention excluded regions via indexing: [%s]' % ', '.join("%d-%d" % (x[0], x[1]) for x in self.attention_excluded_regions))
-            else:
-                self.attention_excluded_regions = attention_excluded_regions
-        else:
+        if len(attention_excluded_regions_sampling) != 0:
+            self.attention_excluded_regions_dict = dict()
             # print(attention_excluded_regions_sampling)
             for region_group in attention_excluded_regions_sampling.keys():
                 if region_group == "":
@@ -214,6 +203,55 @@ class RegressionMetric(CometModel):
                 self.attention_excluded_regions_sampling.append((v, attention_excluded_regions_sampling[k]))
                 # print(self.attention_excluded_regions_sampling)
                 # input()
+        elif len(attention_excluded_regions_dict) != 0:
+            self.attention_excluded_regions_sampling = list()
+            self.attention_excluded_regions_dict = dict()
+            segment_input_index = {v: str(k) for k, v in enumerate(self.input_segments)}
+            print('Under the setting of each input formatting, following attention among input segments will be randomly banned:')
+            for key, value in attention_excluded_regions_dict.items():
+                print('%s: %s' % (key, value))
+
+            for key, value in attention_excluded_regions_dict.items():
+                region_group = list(x.strip() for x in value.split(','))
+                # print('key:', key)
+                # print('value:', value)
+                # print('region_group:', region_group)
+                if value.strip() == '':
+                    self.attention_excluded_regions_dict[key] = list()
+                    continue
+                if any(x not in ['src-src', 'src-hyp', 'src-ref', 'hyp-src', 'hyp-hyp', 'hyp-ref', 'ref-src', 'ref-hyp', 'ref-ref'] for x in region_group):
+                    raise ValueError('Attention excluded regions must be choices from \'src-src, src-hyp, src-ref, hyp-src, hyp-hyp, hyp-ref, ref-src, ref-hyp, ref-ref\'.')
+
+                # print('key:', key)
+                # print('value:', value)
+                # print('region_group:', region_group)
+
+                for segment in self.input_segments:
+                    region_group = list(x.replace(segment, segment_input_index[segment]) for x in region_group)
+                    # print('region_group:', region_group)
+                    # input()
+
+                self.attention_excluded_regions_dict[key] = list((int(x[0]), int(x[-1])) for x in region_group)
+                # print('self.attention_excluded_regions_dict:', self.attention_excluded_regions_dict)
+                # input()
+  
+            print('self.attention_excluded_regions_dict:', self.attention_excluded_regions_dict)
+            # input()
+            
+        else:
+            self.attention_excluded_regions_sampling = attention_excluded_regions_sampling
+            self.attention_excluded_regions_dict = attention_excluded_regions_dict
+            if len(attention_excluded_regions) != 0:
+                if any(x not in ['src-src', 'src-hyp', 'src-ref', 'hyp-src', 'hyp-hyp', 'hyp-ref', 'ref-src', 'ref-hyp', 'ref-ref'] for x in attention_excluded_regions):
+                    raise ValueError('Attention excluded regions must be choices from \'src-src, src-hyp, src-ref, hyp-src, hyp-hyp, hyp-ref, ref-src, ref-hyp, ref-ref\'.')
+                print('Following attention among input segments will be banned: [%s]' % ', '.join(attention_excluded_regions))
+                segment_input_index = {v: str(k) for k, v in enumerate(self.input_segments)}
+                for segment in self.input_segments:
+                    attention_excluded_regions = list(x.replace(segment, segment_input_index[segment]) for x in attention_excluded_regions)
+                self.attention_excluded_regions = list((int(x[0]), int(x[-1])) for x in attention_excluded_regions)
+                print('Converting attention excluded regions via indexing: [%s]' % ', '.join("%d-%d" % (x[0], x[1]) for x in self.attention_excluded_regions))
+            else:
+                self.attention_excluded_regions = attention_excluded_regions
 
         if self.hparams.pool in ['avg_each', 'cls_each'] and not self.combine_inputs:
             raise ValueError('%s pooling only works for setting combine_inputs to True. Please use %s instead.' % (self.hparams.pool, self.hparams.pool[:3]))
@@ -331,6 +369,7 @@ class RegressionMetric(CometModel):
 
     def forward(
         self,
+        input_segments: str,
         src_input_ids: torch.tensor,
         src_attention_mask: torch.tensor,
         mt_input_ids: torch.tensor,
@@ -339,37 +378,11 @@ class RegressionMetric(CometModel):
         ref_attention_mask: torch.tensor,
         **kwargs
     ) -> Dict[str, torch.Tensor]:
-        # for name, param in self.named_parameters():
-        #     print('%s\t%s\t%s\t%s' % (name, param, param.grad, param.requires_grad))
-        # for name, module in self.named_modules():
-        #     print('%s\t%s' % (name, module.training))
-        # input()
         if self.combine_inputs:
             all_input_ids = list()
-
-            # print(self.input_segments_sampling)
-
-            if len(self.input_segments_sampling) > 0:
-                if self.training:
-                    sampled_random = torch.rand(size=(1,))
-                    # print('sampled_random', sampled_random)
-                    inputs_group_idx = 0
-
-                    while inputs_group_idx < len(self.input_segments_sampling):
-                        inputs_group, inputs_group_sampling_prob = self.input_segments_sampling[inputs_group_idx]
-                        # print(sampled_random, inputs_group, inputs_group_sampling_prob)
-                        # input()
-                        if sampled_random >= inputs_group_sampling_prob:
-                            sampled_random -= inputs_group_sampling_prob
-                            inputs_group_idx += 1
-                        else:
-                            break
-                else:
-                    inputs_group = self.input_segments
-            else:
-                inputs_group = self.input_segments
-            
-            # print(inputs_group)
+            # input_segments = input_segments.split('-')
+            # print('input_segments:', input_segments)
+            inputs_group = input_segments.split('-')
             # input()
 
             if 'hyp' in inputs_group:
@@ -403,12 +416,11 @@ class RegressionMetric(CometModel):
 
             # print('all_input_seq_lens:', all_input_seq_lens, all_input_seq_lens.size())
             # input()
-
             
             cls_ids = torch.cat((all_input_seq_lens.new_zeros(size=(all_input_seq_lens.size(0), 1)), all_input_seq_lens.cumsum(dim=-1)), dim=-1).contiguous()  # batch_size x (num_of_inputs + 1)
             # print('cls_ids:', cls_ids, cls_ids.size())
             # input()
-            
+
             token_type_ids, token_type_masks = compute_token_type_ids(
                 token_ids=all_input_concat_padded,
                 cls_ids_with_sum_lens=cls_ids,
@@ -454,6 +466,18 @@ class RegressionMetric(CometModel):
                     # input()
                 else:
                     excluded_regions_all_mask_concat_padded = all_mask_concat_padded
+            
+            elif len(self.attention_excluded_regions_dict) > 0:
+                excluded_regions_all_mask_concat_padded = compute_attention_masks_for_regions(
+                    seq_lens=all_input_seq_lens,
+                    excluded_regions=self.attention_excluded_regions_dict[input_segments],
+                    buffered_position_ids=self.encoder.model.embeddings.position_ids,
+                    num_of_inputs=len(self.input_segments),
+                    token_type_ids=token_type_ids,
+                    cls_token_ids=cls_ids,
+                    cls_from_cls_to_all=self.cls_from_cls_to_all,
+                    cls_from_all_to_cls=self.cls_from_all_to_cls
+                )
 
             elif len(self.attention_excluded_regions) > 0:
                 excluded_regions_all_mask_concat_padded = compute_attention_masks_for_regions(
@@ -489,6 +513,7 @@ class RegressionMetric(CometModel):
             # print('cls_ids', cls_ids)
             # print('position_ids', position_ids)
             # print('len(self.input_segments)', len(self.input_segments))
+            # print('input_segments', input_segments)
             # input()
 
             # print(self.encoder.model.embeddings.word_embeddings.weight, self.encoder.model.embeddings.word_embeddings.weight.size())
@@ -506,7 +531,7 @@ class RegressionMetric(CometModel):
                 token_type_masks,
                 cls_ids[:, :-1],
                 position_ids,
-                len(self.input_segments)
+                len(input_segments)
             )
 
         else:
@@ -548,7 +573,7 @@ class RegressionMetric(CometModel):
             if 'src_hyp_l1' in self.pooling_rep:
                 diff_src = torch.abs(mt_sentemb - src_sentemb)
                 reps_for_regression.append(diff_src)
-
+            
             # diff_ref = torch.abs(mt_sentemb - ref_sentemb)
             # diff_src = torch.abs(mt_sentemb - src_sentemb)
 

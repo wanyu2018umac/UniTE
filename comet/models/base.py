@@ -31,8 +31,9 @@ import torch
 from comet.encoders import str2encoder
 from comet.modules import LayerwiseAttention
 from torch import nn
-from torch.utils.data import DataLoader, RandomSampler, Subset
+from torch.utils.data import DataLoader, RandomSampler, Subset, Sampler
 from tqdm import tqdm
+from math import ceil
 
 from .pooling_utils import average_pooling, max_pooling, average_each_pooling, class_each_pooling
 
@@ -170,7 +171,7 @@ class CometModel(ptl.LightningModule, metaclass=abc.ABCMeta):
     def compute_loss(
         self, predictions: Dict[str, torch.Tensor], targets: Dict[str, torch.Tensor]
     ) -> torch.Tensor:
-        return self.loss(predictions["score"].view(-1), targets["score"])
+        return self.loss(predictions["score"].view(-1), targets["score"].to(predictions["score"].dtype))
 
     def unfreeze_encoder(self) -> None:
         if self._frozen:
@@ -294,9 +295,18 @@ class CometModel(ptl.LightningModule, metaclass=abc.ABCMeta):
 
         :returns: Loss value
         """
-        batch_input, batch_target = batch
-        batch_prediction = self.forward(**batch_input)
-        loss_value = self.compute_loss(batch_prediction, batch_target)
+        all_loss_value = dict()
+        opt = self.optimizers()
+
+        for input_segments, batch_item in batch.items():
+            batch_input, batch_target = batch_item
+            batch_prediction = self.forward(input_segments=input_segments, **batch_input)
+            loss = self.compute_loss(batch_prediction, batch_target)
+            self.manual_backward(loss)
+            all_loss_value[input_segments] = float(loss)
+        
+        opt.step()
+        opt.zero_grad()
 
         if (
             self.nr_frozen_epochs < 1.0
@@ -306,8 +316,8 @@ class CometModel(ptl.LightningModule, metaclass=abc.ABCMeta):
             self.unfreeze_encoder()
             self._frozen = False
 
-        self.log("train_loss", loss_value, on_step=True, on_epoch=True)
-        return loss_value
+        self.log_dict(all_loss_value, prog_bar=True)
+        return sum(all_loss_value.values()) / len(all_loss_value)
 
     def validation_step(
         self,
@@ -323,7 +333,7 @@ class CometModel(ptl.LightningModule, metaclass=abc.ABCMeta):
         :param dataloader_idx: Integer displaying which dataloader this is.
         """
         batch_input, batch_target = batch
-        batch_prediction = self.forward(**batch_input)
+        batch_prediction = self.forward(input_segments='hyp-src-ref', **batch_input)
         loss_value = self.compute_loss(batch_prediction, batch_target)
 
         self.log("val_loss", loss_value, on_step=True, on_epoch=True)
@@ -332,11 +342,11 @@ class CometModel(ptl.LightningModule, metaclass=abc.ABCMeta):
         if batch_prediction["score"].view(-1).size() != torch.Size([1]):
             if dataloader_idx == 0:
                 self.train_metrics.update(
-                    batch_prediction["score"].view(-1), batch_target["score"]
+                    batch_prediction["score"].view(-1), batch_target["score"].to(batch_prediction["score"].dtype)
                 )
             elif dataloader_idx == 1:
                 self.val_metrics.update(
-                    batch_prediction["score"].view(-1), batch_target["score"]
+                    batch_prediction["score"].view(-1), batch_target["score"].to(batch_prediction["score"].dtype)
                 )
 
     def on_predict_start(self) -> None:
@@ -383,6 +393,9 @@ class CometModel(ptl.LightningModule, metaclass=abc.ABCMeta):
         """
         if stage in (None, "fit"):
             self.train_dataset = self.read_csv(self.hparams.train_data)
+            subset_size = ceil(len(self.train_dataset) / 3)
+            self.train_dataset_subsets = list(self.train_dataset[:][subset_size * i : subset_size * (i + 1)] for i in range(0, 3))
+
             self.validation_dataset = self.read_csv(self.hparams.validation_data)
 
             self.epoch_total_steps = len(self.train_dataset) // (
@@ -395,15 +408,20 @@ class CometModel(ptl.LightningModule, metaclass=abc.ABCMeta):
             self.train_subset = Subset(self.train_dataset, train_subset)
             self.init_metrics()
 
-    def train_dataloader(self) -> DataLoader:
+    def train_dataloader(self) -> List[DataLoader]:
         """Function that loads the train set."""
-        return DataLoader(
-            dataset=self.train_dataset,
-            sampler=RandomSampler(self.train_dataset),
-            batch_size=self.hparams.batch_size,
-            collate_fn=self.prepare_sample,
-            num_workers=min(4, multiprocessing.cpu_count()),
+        dataloaders = list(
+            DataLoader(
+                dataset=self.train_dataset_subsets[i],
+                sampler=RandomSampler(self.train_dataset_subsets[i]),
+                batch_size=self.hparams.batch_size,
+                collate_fn=self.prepare_sample,
+                num_workers=min(4, multiprocessing.cpu_count()),
+            )
+            for i in range(0, 3)
         )
+        dataloaders_dict = {'hyp-src': dataloaders[0], 'hyp-ref': dataloaders[1], 'hyp-src-ref': dataloaders[2]}
+        return dataloaders_dict
 
     def val_dataloader(self) -> DataLoader:
         """Function that loads the validation set."""
