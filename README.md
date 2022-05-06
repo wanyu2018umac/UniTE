@@ -3,6 +3,10 @@
 This is the repository of UniTE: Unified Translation Evaluation, which is build on COMET.
 Datasets can be found at COMET repository.
 
+# Training or Inference
+
+The `main` repository is for inference. To train your own UniTE model, you can switch to `training` branch.
+
 # Usage
 
 1. Download this repository via git;
